@@ -1,4 +1,4 @@
-// index.js
+// index.js aggiornato per cartella condivisa
 const express = require("express");
 const bodyParser = require("body-parser");
 const nodemailer = require("nodemailer");
@@ -54,15 +54,15 @@ async function sendEmailWithMultipleAttachments(to, subject, html, attachments, 
   await transporter.sendMail({ to, subject, html, attachments: mailAttachments });
 }
 
-// Template Docs
+// Template Docs (ID dei file copiati nella cartella condivisa)
 const TEMPLATES = {
   preventivo: {
-    Privato: '156Ufe6qWMZZLh1rbsUAGXIxCvtlpCHRLmvxHfl9MDfc',
-    Azienda: '1DVCFbfEqOwfZT05yZ8_X-CL5122xGK1W5A8_DX3PEmQ'
+    Privato: '159jDeDa5tsfsI_nKcTQcCrimeBKENAwwollvL1CqRVk',
+    Azienda: '1-gv8ro45rvuI8nmpvkM5Rz00nlFnWsWSDxHSfcaZeCw'
   },
   contratto: {
-    Privato: '1PueKnt-WthhYq7b702l_zlU8yoSEQK1_6h7EQxBvshc',
-    Azienda: '1koJ4v3hcysD-4pWboW9SBQps4MRQNaA_FwS-taZ9Yfw'
+    Privato: '1AReUg6aMIEAjd1TQOWO06aKpzUYXg0ZPNpy_oJZ-j74',
+    Azienda: '1Pc8ZhS29tZXh16eCvXBHKgJC2_UStc799tc8-pE9Loc'
   }
 };
 
@@ -87,12 +87,18 @@ const auth = new google.auth.GoogleAuth({
 const drive = google.drive({ version: 'v3', auth });
 const docs = google.docs({ version: 'v1', auth });
 
+// ID della cartella condivisa dove mettere le copie temporanee
+const TEMP_FOLDER_ID = '1_lvXfCK8b7zsrSZIpE1bSgPabZPuhzZ5';
+
 // Generazione PDF dai template
 async function generatePDF(templateId, data) {
-  // Copia del template
+  // Copia del template nella cartella condivisa
   const copyRes = await drive.files.copy({
     fileId: templateId,
-    requestBody: { name: `temp_${Date.now()}` }
+    requestBody: { 
+      name: `temp_${Date.now()}`,
+      parents: [TEMP_FOLDER_ID] // <- nuova cartella condivisa
+    }
   });
   const docId = copyRes.data.id;
 
