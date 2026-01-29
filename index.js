@@ -1,4 +1,4 @@
-// index.js definitivo per cartella condivisa + SA corretto
+// index.js - versione definitiva Cloud Run + Shared Drive + Gmail OAuth2
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -10,9 +10,9 @@ app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
 
-/* =======================
+/* =========================
    GMAIL OAuth2
-======================= */
+========================= */
 const oAuth2Client = new google.auth.OAuth2(
   process.env.GMAIL_CLIENT_ID,
   process.env.GMAIL_CLIENT_SECRET
@@ -64,6 +64,7 @@ async function sendEmailWithMultipleAttachments(
     filename: `${tipiDocumento[i]}_${Date.now()}_${i}.pdf`,
     content: att,
   }));
+
   await transporter.sendMail({
     from: process.env.GMAIL_SENDER,
     to,
@@ -73,9 +74,9 @@ async function sendEmailWithMultipleAttachments(
   });
 }
 
-/* =======================
-   TEMPLATE DOCS
-======================= */
+/* =========================
+   TEMPLATE ID (Shared Drive)
+========================= */
 const TEMPLATES = {
   preventivo: {
     Privato: "159jDeDa5tsfsI_nKcTQcCrimeBKENAwwollvL1CqRVk",
@@ -87,11 +88,9 @@ const TEMPLATES = {
   },
 };
 
-const TEMP_FOLDER_ID = "1_lvXfCK8b7zsrSZIpE1bSgPabZPuhzZ5";
-
-/* =======================
-   PLACEHOLDERS
-======================= */
+/* =========================
+   PLACEHOLDERS (GAS 1:1)
+========================= */
 const PLACEHOLDERS = [
   "cliente-tipo",
   "numero-preventivo",
@@ -128,28 +127,32 @@ const PLACEHOLDERS = [
   "km-extra",
 ];
 
-/* =======================
-   GOOGLE API
-======================= */
+/* =========================
+   GOOGLE API (SA di Cloud Run)
+========================= */
 const auth = new google.auth.GoogleAuth({
   scopes: [
-    "https://www.googleapis.com/auth/documents",
     "https://www.googleapis.com/auth/drive",
+    "https://www.googleapis.com/auth/documents",
   ],
 });
 
 const drive = google.drive({ version: "v3", auth });
 const docs = google.docs({ version: "v1", auth });
 
-/* =======================
+/* =========================
+   CARTELLA CONDIVISA
+========================= */
+const TEMP_FOLDER_ID = "1_lvXfCK8b7zsrSZIpE1bSgPabZPuhzZ5";
+
+/* =========================
    GENERAZIONE PDF
-======================= */
+========================= */
 async function generatePDF(templateId, data) {
-  // Copia template nella cartella condivisa
+  // 1️⃣ Copia template nello Shared Drive
   const copyRes = await drive.files.copy({
     fileId: templateId,
     supportsAllDrives: true,
-    includeItemsFromAllDrives: true,
     requestBody: {
       name: `temp_${Date.now()}`,
       parents: [TEMP_FOLDER_ID],
@@ -158,7 +161,7 @@ async function generatePDF(templateId, data) {
 
   const docId = copyRes.data.id;
 
-  // Replace placeholders
+  // 2️⃣ Replace placeholder
   const requests = PLACEHOLDERS.map((ph) => ({
     replaceAllText: {
       containsText: {
@@ -174,18 +177,17 @@ async function generatePDF(templateId, data) {
     requestBody: { requests },
   });
 
-  // Export PDF
+  // 3️⃣ Export PDF
   const pdfRes = await drive.files.export(
     {
       fileId: docId,
       mimeType: "application/pdf",
+      supportsAllDrives: true,
     },
-    {
-      responseType: "arraybuffer",
-    }
+    { responseType: "arraybuffer" }
   );
 
-  // Delete temp file
+  // 4️⃣ Elimina file temporaneo
   await drive.files.delete({
     fileId: docId,
     supportsAllDrives: true,
@@ -194,48 +196,49 @@ async function generatePDF(templateId, data) {
   return Buffer.from(pdfRes.data);
 }
 
-/* =======================
+/* =========================
    EMAIL HTML
-======================= */
+========================= */
 function prepareEmailBody(data) {
   const nome =
     data["nome-cognome"] || data["denominazione"] || "Cliente";
   return `
-    <div style="font-family:Arial;max-width:600px;margin:auto">
-      <h2>Gentile ${nome},</h2>
-      <p>In allegato trovi il tuo preventivo.</p>
-      <p>Cordiali saluti</p>
-    </div>
-  `;
+  <div style="font-family:Arial;max-width:600px;margin:auto">
+    <h2>Gentile ${nome},</h2>
+    <p>In allegato trovi il tuo preventivo.</p>
+    <p><strong>Veicolo:</strong> ${data["veicolo-display"] || ""}</p>
+    <p><strong>Importo:</strong> €${data["preventivo"] || ""}</p>
+    <p>Cordiali saluti</p>
+  </div>`;
 }
 
 function prepareInternalEmailBody(data, emailCliente) {
   const nome =
     data["nome-cognome"] || data["denominazione"] || "Cliente";
   return `
-    <div style="font-family:Arial;max-width:600px;margin:auto">
-      <h2>Nuovo preventivo</h2>
-      <p><strong>Cliente:</strong> ${nome}</p>
-      <p><strong>Email:</strong> ${emailCliente}</p>
-    </div>
-  `;
+  <div style="font-family:Arial;max-width:600px;margin:auto">
+    <h2>Nuovo preventivo generato</h2>
+    <p><strong>Cliente:</strong> ${nome}</p>
+    <p><strong>Email:</strong> ${emailCliente}</p>
+    <p><strong>Importo:</strong> €${data["preventivo"] || ""}</p>
+  </div>`;
 }
 
-/* =======================
+/* =========================
    ENDPOINT
-======================= */
+========================= */
 app.post("/preventivo", async (req, res) => {
   try {
     const data = req.body;
-    const tipoCliente = data["cliente-tipo"] || "Privato";
+    const tipo = data["cliente-tipo"] || "Privato";
     const internalEmail = process.env.INTERNAL_EMAIL;
 
     const pdfPreventivo = await generatePDF(
-      TEMPLATES.preventivo[tipoCliente],
+      TEMPLATES.preventivo[tipo],
       data
     );
     const pdfContratto = await generatePDF(
-      TEMPLATES.contratto[tipoCliente],
+      TEMPLATES.contratto[tipo],
       data
     );
 
@@ -249,7 +252,7 @@ app.post("/preventivo", async (req, res) => {
 
     await sendEmailWithMultipleAttachments(
       internalEmail,
-      `Preventivo e Contratto - ${data["nome-cognome"] || ""}`,
+      `Preventivo e contratto - ${data["numero-preventivo"] || ""}`,
       prepareInternalEmailBody(data, data.email),
       [pdfPreventivo, pdfContratto],
       ["preventivo", "contratto"]
@@ -258,7 +261,10 @@ app.post("/preventivo", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ success: false, error: err.toString() });
+    res.status(500).json({
+      success: false,
+      error: err.message,
+    });
   }
 });
 
