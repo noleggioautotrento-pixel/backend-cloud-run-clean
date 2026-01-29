@@ -1,6 +1,5 @@
 const express = require("express");
 const bodyParser = require("body-parser");
-const fs = require("fs");
 const { google } = require("googleapis");
 const nodemailer = require("nodemailer");
 
@@ -9,32 +8,36 @@ app.use(bodyParser.json());
 
 const PORT = process.env.PORT || 8080;
 
-// Funzione per leggere credenziali
+// Legge le credenziali dal Secret Manager (variabile d'ambiente)
 function getCredentials() {
-  const path = "./credentials/noleggio-auto-backend.json"; // il JSON in locale
-  return JSON.parse(fs.readFileSync(path));
+  if (!process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON) {
+    throw new Error("La variabile d'ambiente GOOGLE_APPLICATION_CREDENTIALS_JSON non è impostata");
+  }
+  return JSON.parse(process.env.GOOGLE_APPLICATION_CREDENTIALS_JSON);
 }
 
-// Endpoint di test
+// Endpoint di test per Make.com
 app.post("/preventivo", async (req, res) => {
   try {
     const data = req.body;
     console.log("Ricevuto preventivo:", data);
-    
-    // Esempio: invio email con Nodemailer
+
+    const credentials = getCredentials();
+
+    // Configura Nodemailer con OAuth2 dalle credenziali
     const transporter = nodemailer.createTransport({
       service: "gmail",
       auth: {
         type: "OAuth2",
-        user: "tua-email@gmail.com",
-        clientId: "CLIENT_ID_DA_CREDENTIALS",
-        clientSecret: "CLIENT_SECRET_DA_CREDENTIALS",
-        refreshToken: "REFRESH_TOKEN_DA_CREDENTIALS"
+        user: credentials.client_email,       // email del service account
+        clientId: credentials.client_id,
+        clientSecret: credentials.private_key, // alcune volte serve private_key invece di clientSecret
+        refreshToken: credentials.refresh_token // se presente nel JSON
       }
     });
 
     await transporter.sendMail({
-      from: "tua-email@gmail.com",
+      from: credentials.client_email,
       to: data.email,
       subject: "Conferma preventivo",
       text: `Ciao ${data["nome-cognome"]}, abbiamo ricevuto il tuo preventivo!`
