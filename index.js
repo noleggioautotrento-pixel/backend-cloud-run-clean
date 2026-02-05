@@ -1,4 +1,4 @@
-// index.js — versione finale OAuth2 (Drive + Docs + Gmail)
+// index.js — versione con gestione auto/pulmino SOLO per contratti
 
 const express = require("express");
 const bodyParser = require("body-parser");
@@ -104,8 +104,14 @@ const TEMPLATES = {
     Azienda: "1-gv8ro45rvuI8nmpvkM5Rz00nlFnWsWSDxHSfcaZeCw"
   },
   contratto: {
-    Privato: "1AReUg6aMIEAjd1TQOWO06aKpzUYXg0ZPNpy_oJZ-j74",
-    Azienda: "1Pc8ZhS29tZXh16eCvXBHKgJC2_UStc799tc8-pE9Loc"
+    Privato: {
+      auto: "1X95XzczTC0nJVu3vhV5Ah-ZlNq4M2Ed0t35FNYrLKus",      // NUOVO: Auto
+      pulmino: "1AReUg6aMIEAjd1TQOWO06aKpzUYXg0ZPNpy_oJZ-j74"   // ESISTENTE: Pulmino
+    },
+    Azienda: {
+      auto: "1bab0d7QYP9TO3XZt2Hcqt9aRG5e6fdLCWp8TIhxWyws",      // NUOVO: Auto
+      pulmino: "1Pc8ZhS29tZXh16eCvXBHKgJC2_UStc799tc8-pE9Loc"   // ESISTENTE: Pulmino
+    }
   }
 };
 
@@ -169,7 +175,7 @@ async function generatePDF(templateId, data) {
 }
 
 /* =========================
-   EMAIL HTML (CLIENTE)
+   EMAIL HTML (CLIENTE) - ORIGINALE
 ========================= */
 function prepareEmailBody(data) {
   const nomeCliente =
@@ -192,7 +198,7 @@ function prepareEmailBody(data) {
 }
 
 /* =========================
-   EMAIL HTML (INTERNA)
+   EMAIL HTML (INTERNA) - ORIGINALE
 ========================= */
 function prepareInternalEmailBody(data, emailCliente) {
   const nomeCliente =
@@ -219,7 +225,7 @@ function prepareInternalEmailBody(data, emailCliente) {
 }
 
 /* =========================
-   ENDPOINT
+   ENDPOINT - MODIFICA MINIMA
 ========================= */
 app.post("/preventivo", async (req, res) => {
   try {
@@ -227,28 +233,40 @@ app.post("/preventivo", async (req, res) => {
     const tipoCliente = data["cliente-tipo"] || "Privato";
     const tuaEmail = process.env.INTERNAL_EMAIL;
 
+    // DETERMINA SE È AUTO O PULMINO
+    const veicoloValue = data["veicolo"] || "";
+    const isAuto = veicoloValue.toLowerCase() === "auto";
+
+    // GENERA PREVENTIVO (sempre lo stesso)
     const pdfPreventivo = await generatePDF(
       TEMPLATES.preventivo[tipoCliente],
       data
     );
 
-    const pdfContratto = await generatePDF(
-      TEMPLATES.contratto[tipoCliente],
-      data
-    );
+    // SELEZIONA IL CONTRATTO CORRETTO
+    let templateContrattoId;
+    if (isAuto) {
+      templateContrattoId = TEMPLATES.contratto[tipoCliente].auto;
+    } else {
+      templateContrattoId = TEMPLATES.contratto[tipoCliente].pulmino;
+    }
 
+    // GENERA CONTRATTO
+    const pdfContratto = await generatePDF(templateContrattoId, data);
+
+    // INVIA EMAIL - TUTTO IDENTICO ALL'ORIGINALE
     await sendEmail(
       data.email,
-      "Il tuo preventivo",
-      prepareEmailBody(data),
+      "Il tuo preventivo",  // OGGETTO ORIGINALE
+      prepareEmailBody(data),  // CORPO ORIGINALE
       pdfPreventivo,
       "preventivo"
     );
 
     await sendEmailWithMultipleAttachments(
       tuaEmail,
-      `Preventivo e Contratto - ${data["nome-cognome"] || data["denominazione"] || "Cliente"}`,
-      prepareInternalEmailBody(data, data.email),
+      `Preventivo e Contratto - ${data["nome-cognome"] || data["denominazione"] || "Cliente"}`,  // OGGETTO ORIGINALE
+      prepareInternalEmailBody(data, data.email),  // CORPO ORIGINALE
       [pdfPreventivo, pdfContratto],
       ["preventivo", "contratto"]
     );
@@ -269,8 +287,3 @@ app.post("/preventivo", async (req, res) => {
     });
   }
 });
-
-/* ========================= */
-app.listen(PORT, () =>
-  console.log(`Server avviato sulla porta ${PORT}`)
-);
