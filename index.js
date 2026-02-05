@@ -287,3 +287,8 @@ app.post("/preventivo", async (req, res) => {
     });
   }
 });
+
+/* ========================= */
+app.listen(PORT, () =>
+  console.log(`Server avviato sulla porta ${PORT}`)
+);
